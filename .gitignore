@@ -1,0 +1,5 @@
+*.tar
+*.log
+.env
+*.pem
+*_id_rsa
