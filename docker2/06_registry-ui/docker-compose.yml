@@ -1,0 +1,34 @@
+services:
+  registry:
+    image: registry:3
+    container_name: registry
+    restart: always
+
+    ports:
+      - "443:443"
+
+    volumes:
+      - /auth:/auth:ro
+      - ./image-data:/var/lib/registry
+      - ./config.yml:/etc/distribution/config.yml:ro
+
+    command: ["registry", "serve", "/etc/distribution/config.yml"]
+
+  registry-ui:
+    image: joxit/docker-registry-ui:latest
+    container_name: registry-ui
+    restart: always
+    ports:
+      - "8080:80"
+
+    environment:
+      SINGLE_REGISTRY: "true"
+      REGISTRY_TITLE: "My Private Registry"
+      REGISTRY_SECURED: "true"
+      SHOW_CATALOG_NB_TAGS: "true"
+      DELETE_IMAGES: "true"
+      NGINX_PROXY_PASS_URL: "https://registry:443"
+
+    depends_on:
+      - registry
+

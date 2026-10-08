@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "config": {
+    "mediaType": "application/vnd.oci.image.config.v1+json",
+    "digest": "sha256:ccb55df1d2413428166d80b08aa37a4bdcb61a63d09fff6f8abc0d561f311053",
+    "size": 1053
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "digest": "sha256:59259e167f1330a2378d204c639ab48759f9d49f292cf10905abc5ac474bc6c4",
+      "size": 69396734
+    }
+  ],
+  "annotations": {
+    "com.docker.official-images.bashbrew.arch": "amd64",
+    "org.opencontainers.image.base.name": "scratch",
+    "org.opencontainers.image.created": "2026-08-26T18:35:44Z",
+    "org.opencontainers.image.revision": "00ba23e0a949c85be548458e33c15cada039b660",
+    "org.opencontainers.image.source": "https://github.com/fedora-cloud/docker-brew-fedora.git#00ba23e0a949c85be548458e33c15cada039b660:x86_64",
+    "org.opencontainers.image.url": "https://hub.docker.com/_/fedora",
+    "org.opencontainers.image.version": "44"
+  }
+}

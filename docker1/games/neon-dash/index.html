@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Neon Dash</title>
+<style>
+html,body{margin:0;height:100%;background:#070b1a;overflow:hidden}
+body{display:flex;align-items:center;justify-content:center}
+canvas{display:block;touch-action:none;border-radius:6px;box-shadow:0 0 40px #0008}
+</style>
+</head>
+<body>
+<canvas id="c" width="800" height="400"></canvas>
+<script>
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = 800, H = 400, GY = 330;
+function fit(){ const s = Math.min(innerWidth / W, innerHeight / H); cv.style.width = W*s + 'px'; cv.style.height = H*s + 'px'; }
+addEventListener('resize', fit); fit();
+
+const rand = (a, b) => a + Math.random() * (b - a);
+const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+let best = 0; try { best = +localStorage.getItem('dashBest') || 0; } catch (e) {}
+let state = 'title', P, obs, coins, items, parts, speed, score, coinsN, time = 0, spawnT, itemT, eff, groundOff = 0;
+
+const far = Array.from({length: 14}, (_, i) => ({x: i*70, w: rand(40, 66), h: rand(60, 150)}));
+const near = Array.from({length: 10}, (_, i) => ({x: i*110, w: rand(60, 100), h: rand(90, 190)}));
+
+function reset(){
+  P = {x: 140, y: GY, vy: 0, onG: true, jumps: 0, slideT: 0, run: 0, inv: 0};
+  obs = []; coins = []; items = []; parts = [];
+  speed = 360; score = 0; coinsN = 0; time = 0; spawnT = 1.2; itemT = 8;
+  eff = {shield: 0, magnet: 0, x2: 0};
+}
+
+const sliding = () => P.onG && (keys.ArrowDown || keys.KeyS || P.slideT > 0);
+const pH = () => sliding() ? 26 : 50;
+
+function jump(){
+  if (P.onG) { P.vy = -780; P.onG = false; P.jumps = 1; P.slideT = 0; boom(P.x, GY, '#ffffff88', 8); }
+  else if (P.jumps < 2) { P.vy = -680; P.jumps = 2; boom(P.x, P.y, '#00f5d4', 8); }
+}
+
+/* ---------- 입력 ---------- */
+const keys = {};
+addEventListener('keydown', e => {
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+  keys[e.code] = true;
+  if (e.repeat) return;
+  if (e.code === 'Enter' && (state === 'title' || state === 'over')) { reset(); state = 'play'; }
+  else if ((e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') && state === 'play') jump();
+  else if (e.code === 'KeyP' && (state === 'play' || state === 'pause')) state = state === 'play' ? 'pause' : 'play';
+});
+addEventListener('keyup', e => keys[e.code] = false);
+
+let touchY = null;
+function gp(e){ const r = cv.getBoundingClientRect(); return {x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height}; }
+cv.addEventListener('pointerdown', e => {
+  if (state === 'pause') { state = 'play'; return; }
+  if (state !== 'play') { reset(); state = 'play'; return; }
+  touchY = gp(e).y;
+});
+addEventListener('pointerup', e => {
+  if (state !== 'play' || touchY === null) return;
+  if (gp(e).y - touchY > 30) P.slideT = .7; else jump();
+  touchY = null;
+});
+
+/* ---------- 게임 로직 ---------- */
+function boom(x, y, c, n){
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI*2), s = rand(40, 220);
+    parts.push({x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life: rand(.3, .7), c, s: rand(2, 4)});
+  }
+}
+
+function coinArc(cx, top){
+  for (let i = 0; i < 5; i++) { const t = i/4 - .5; coins.push({x: cx + t*160, y: top + t*t*4*50}); }
+}
+function coinLine(x, y, n){ for (let i = 0; i < n; i++) coins.push({x: x + i*34, y}); }
+
+function spawn(){
+  const r = Math.random(), x = W + 40;
+  if (r < .38) {
+    const w = rand(26, 44), h = rand(36, 58);
+    obs.push({t: 'block', x, y: GY - h, w, h}); coinArc(x + w/2, GY - h - 70);
+  } else if (r < .6) {
+    obs.push({t: 'bar', x, y: 0, w: 36, h: GY - 40}); coinLine(x - 50, GY - 14, 5);
+  } else if (r < .8) {
+    const low = Math.random() < .55;
+    obs.push({t: 'drone', x, y: low ? GY - 70 : GY - 130, w: 40, h: 28, bob: rand(0, 6)});
+    if (!low) coinLine(x - 30, GY - 20, 4);
+  } else {
+    const w = 30, h = rand(36, 48), gap = rand(80, 110);
+    obs.push({t: 'block', x, y: GY - h, w, h}, {t: 'block', x: x + gap, y: GY - h, w, h});
+    coinArc(x + gap/2 + w/2, GY - h - 90);
+  }
+}
+
+function die(){
+  state = 'over'; boom(P.x, P.y - 25, '#ff4d6d', 40);
+  const s = Math.floor(score);
+  if (s > best) { best = s; try { localStorage.setItem('dashBest', best); } catch (e) {} }
+}
+
+function update(dt){
+  time += dt;
+  for (const k in eff) eff[k] = Math.max(0, eff[k] - dt);
+  P.inv = Math.max(0, P.inv - dt); P.slideT = Math.max(0, P.slideT - dt);
+  speed = Math.min(950, speed + 9 * dt);
+  const mult = eff.x2 > 0 ? 2 : 1, mv = speed * dt;
+  score += mv / 10 * mult;
+  groundOff = (groundOff + mv) % 40;
+
+  // 플레이어 물리
+  P.vy += 2200 * dt;
+  if (!P.onG && (keys.ArrowDown || keys.KeyS)) P.vy += 3000 * dt;
+  P.y += P.vy * dt;
+  if (P.y >= GY) { if (!P.onG) boom(P.x, GY, '#ffffff55', 5); P.y = GY; P.vy = 0; P.onG = true; P.jumps = 0; }
+  else P.onG = false;
+  P.run += dt * speed / 40;
+
+  // 배경
+  for (const b of far) { b.x -= mv * .2; if (b.x + b.w < 0) b.x += 980; }
+  for (const b of near) { b.x -= mv * .5; if (b.x + b.w < 0) b.x += 1100; }
+
+  // 생성
+  spawnT -= dt;
+  if (spawnT <= 0) { spawn(); spawnT = rand(1, 1.6) * (speed * .75 + 200) / speed; }
+  itemT -= dt;
+  if (itemT <= 0) { items.push({x: W + 40, y: GY - rand(60, 120), t: ['S', 'M', 'X'][Math.floor(rand(0, 3))]}); itemT = rand(7, 12); }
+
+  // 충돌
+  const h = pH(), box = {x: P.x - 13, y: P.y - h + 4, w: 26, h: h - 4};
+  for (const o of obs) {
+    o.x -= mv + (o.t === 'drone' ? 60 * dt : 0);
+    if (o.x + o.w < -20) { o.dead = true; continue; }
+    if (P.inv <= 0 && overlap(box, o)) {
+      if (eff.shield > 0) { eff.shield = 0; P.inv = .8; o.dead = true; boom(o.x + o.w/2, o.y + o.h/2, '#4cc9f0', 24); }
+      else { die(); return; }
+    }
+  }
+  for (const c of coins) {
+    const dx = P.x - c.x, dy = (P.y - h/2) - c.y, d = Math.hypot(dx, dy);
+    if (eff.magnet > 0 && d < 280) { c.x += dx / d * 700 * dt; c.y += dy / d * 700 * dt; }
+    else c.x -= mv;
+    if (d < 26) { c.dead = true; coinsN++; score += 10 * mult; }
+    else if (c.x < -20) c.dead = true;
+  }
+  for (const it of items) {
+    it.x -= mv;
+    if (Math.hypot(P.x - it.x, P.y - h/2 - it.y) < 32) {
+      it.dead = true;
+      if (it.t === 'S') eff.shield = 6; else if (it.t === 'M') eff.magnet = 8; else eff.x2 = 8;
+      boom(it.x, it.y, '#ffd166', 16);
+    } else if (it.x < -20) it.dead = true;
+  }
+  updateParts(dt);
+  obs = obs.filter(o => !o.dead); coins = coins.filter(o => !o.dead); items = items.filter(o => !o.dead);
+}
+
+function updateParts(dt){
+  for (const p of parts) { p.x += p.vx*dt; p.y += p.vy*dt; p.vx *= .95; p.vy *= .95; p.life -= dt; if (p.life <= 0) p.dead = true; }
+  parts = parts.filter(p => !p.dead);
+}
+
+/* ---------- 렌더링 ---------- */
+const ITEM_COLOR = {S: '#4cc9f0', M: '#b388ff', X: '#ffd166'};
+function text(s, x, y, size, color, align = 'center'){
+  ctx.font = `bold ${size}px "Segoe UI","Malgun Gothic",sans-serif`;
+  ctx.textAlign = align; ctx.fillStyle = color; ctx.fillText(s, x, y);
+}
+function overlay(title, lines){
+  ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, W, H);
+  text(title, W/2, 90, 46, '#00f5d4');
+  lines.forEach((l, i) => text(l, W/2, 140 + i*28, 16, '#eef'));
+}
+
+function drawPlayer(){
+  if (P.inv > 0 && Math.floor(time * 20) % 2) return;
+  const x = P.x, y = P.y;
+  ctx.save();
+  ctx.shadowColor = '#00f5d4'; ctx.shadowBlur = 12;
+  ctx.fillStyle = '#00f5d4'; ctx.strokeStyle = '#00f5d4'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  if (sliding()) {
+    ctx.beginPath(); ctx.moveTo(x - 16, y - 6); ctx.lineTo(x + 8, y - 12); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x + 14, y - 16, 7, 0, Math.PI*2); ctx.fill();
+  } else {
+    const a = P.onG ? Math.sin(P.run) * .8 : .5;
+    ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.lineTo(x + Math.sin(a) * 14, y - 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.lineTo(x - Math.sin(a) * 14, y - 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.lineTo(x + 2, y - 38); ctx.stroke();
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(x + 1, y - 34); ctx.lineTo(x - Math.sin(a) * 12, y - 24); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x + 3, y - 45, 7, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+  if (eff.shield > 0) {
+    ctx.strokeStyle = `rgba(76,201,240,${.5 + .3*Math.sin(time*10)})`; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y - pH()/2, 34, 0, Math.PI*2); ctx.stroke();
+  }
+}
+
+function drawObs(o){
+  if (o.t === 'block') {
+    ctx.fillStyle = '#ff9f1c'; ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.strokeStyle = '#c56a00'; ctx.lineWidth = 3; ctx.strokeRect(o.x + 1.5, o.y + 1.5, o.w - 3, o.h - 3);
+    ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(o.x + o.w, o.y + o.h); ctx.stroke();
+  } else if (o.t === 'bar') {
+    ctx.fillStyle = '#3c096c'; ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.fillStyle = '#7b2cbf'; ctx.fillRect(o.x + 6, o.y, o.w - 12, o.h);
+    ctx.save(); ctx.shadowColor = '#ff006e'; ctx.shadowBlur = 14;
+    ctx.fillStyle = '#ff006e'; ctx.fillRect(o.x - 4, o.y + o.h - 6, o.w + 8, 6); ctx.restore();
+  } else {
+    const by = o.y + Math.sin(time * 6 + o.bob) * 3;
+    ctx.fillStyle = '#f15bb5'; ctx.beginPath(); ctx.ellipse(o.x + o.w/2, by + o.h/2 + 4, o.w/2, o.h/2 - 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ffffffcc';
+    const pw = 12 * Math.abs(Math.sin(time * 40));
+    ctx.fillRect(o.x + 6 - pw/2, by + 2, pw, 3); ctx.fillRect(o.x + o.w - 6 - pw/2, by + 2, pw, 3);
+    ctx.fillStyle = '#1b1b2f'; ctx.beginPath(); ctx.arc(o.x + 12, by + o.h/2 + 4, 4, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+function draw(){
+  const g = ctx.createLinearGradient(0, 0, 0, GY);
+  g.addColorStop(0, '#120b2e'); g.addColorStop(.6, '#3b1d60'); g.addColorStop(1, '#ff6f91');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#ffd16688'; ctx.beginPath(); ctx.arc(W*.72, GY - 40, 70, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = '#2b2156';
+  for (const b of far) ctx.fillRect(b.x, GY - b.h, b.w, b.h);
+  for (const b of near) {
+    ctx.fillStyle = '#1a1336'; ctx.fillRect(b.x, GY - b.h, b.w, b.h);
+    ctx.fillStyle = '#ffd16655';
+    for (let wy = GY - b.h + 12; wy < GY - 14; wy += 22) for (let wx = b.x + 8; wx < b.x + b.w - 12; wx += 18)
+      if (((wx * 7 + wy * 13) | 0) % 5 < 2) ctx.fillRect(wx, wy, 8, 10);
+  }
+
+  ctx.fillStyle = '#1b1238'; ctx.fillRect(0, GY, W, H - GY);
+  ctx.save(); ctx.shadowColor = '#00f5d4'; ctx.shadowBlur = 10;
+  ctx.fillStyle = '#00f5d4'; ctx.fillRect(0, GY, W, 3); ctx.restore();
+  ctx.fillStyle = '#00f5d433';
+  for (let x = -groundOff; x < W; x += 40) ctx.fillRect(x, GY + 24, 22, 3);
+
+  if (state !== 'title') {
+    for (const c of coins) {
+      ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(c.x, c.y, 8, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#e09f1f'; ctx.fillRect(c.x - 1.5, c.y - 4, 3, 8);
+    }
+    for (const it of items) {
+      ctx.fillStyle = ITEM_COLOR[it.t]; ctx.beginPath(); ctx.arc(it.x, it.y, 15, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); text(it.t, it.x, it.y + 6, 16, '#fff');
+    }
+    for (const o of obs) drawObs(o);
+    if (state !== 'over') drawPlayer();
+    for (const p of parts) { ctx.globalAlpha = Math.max(0, p.life / .7); ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, p.s, p.s); }
+    ctx.globalAlpha = 1;
+
+    text(Math.floor(score).toLocaleString() + ' m', 16, 30, 22, '#fff', 'left');
+    text('● ' + coinsN, 16, 54, 15, '#ffd166', 'left');
+    text('BEST ' + best.toLocaleString(), W - 16, 26, 13, '#ffd166', 'right');
+    text('SPEED ' + Math.floor(speed / 10), W - 16, 46, 13, '#9ad', 'right');
+    const fx = [];
+    if (eff.shield > 0) fx.push('SHIELD ' + eff.shield.toFixed(1));
+    if (eff.magnet > 0) fx.push('MAGNET ' + eff.magnet.toFixed(1));
+    if (eff.x2 > 0) fx.push('x2 ' + eff.x2.toFixed(1));
+    text(fx.join('   '), W/2, 30, 14, '#4cc9f0');
+  }
+
+  if (state === 'title') overlay('NEON DASH', [
+    '↑ / Space : 점프 (공중에서 한 번 더 = 2단 점프)', '↓ : 슬라이드 (공중에서는 빠른 낙하)', 'P : 일시정지',
+    'S 실드   M 자석   X 점수 2배', '터치: 탭 = 점프, 아래로 스와이프 = 슬라이드', 'Enter 또는 터치로 시작']);
+  else if (state === 'pause') overlay('PAUSE', ['P 키 또는 터치로 계속']);
+  else if (state === 'over') overlay('GAME OVER', ['DISTANCE ' + Math.floor(score).toLocaleString() + ' m', 'COINS ' + coinsN, 'BEST ' + best.toLocaleString(), '', 'Enter 또는 터치로 재시작']);
+}
+
+let last = performance.now();
+function loop(t){
+  const dt = Math.min(.033, (t - last) / 1000); last = t;
+  if (state === 'play') update(dt);
+  else if (state === 'over') updateParts(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+reset();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

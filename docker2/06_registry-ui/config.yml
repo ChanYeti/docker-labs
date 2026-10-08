@@ -1,0 +1,23 @@
+version: 0.1
+
+log:
+  fields:
+    service: registry
+
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+  delete:
+    enabled: true
+
+http:
+  addr: :443
+  tls:
+    certificate: /auth/myregistry.example.com.crt
+    key: /auth/myregistry.example.com.key
+
+auth:
+  htpasswd:
+    realm: Registry Realm
+    path: /auth/htpasswd
+
